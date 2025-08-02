@@ -201,6 +201,9 @@ pub use crate::line_weight::LineWeight;
 mod entity;
 pub use crate::entity::LwPolylineVertex;
 
+mod hatch;
+pub use crate::hatch::{BoundaryPath, BoundaryPathEdge, PatternDefinitionLine};
+
 mod object;
 pub use crate::object::{GeoMeshPoint, MLineStyleElement};
 

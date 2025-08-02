@@ -3,6 +3,7 @@
 use enum_primitive::FromPrimitive;
 
 use crate::{CodePair, Color, DxfError, DxfResult, Handle, Point, Vector};
+use crate::enums::HatchStyle;
 
 use crate::code_pair_put_back::CodePairPutBack;
 use crate::entities::*;
@@ -1334,6 +1335,9 @@ impl Entity {
             EntityType::Vertex(ref v) => {
                 Entity::add_custom_code_pairs_vertex(pairs, v, version);
             }
+            EntityType::Hatch(ref hatch) => {
+                Self::add_custom_code_pairs_hatch(pairs, hatch, version);
+            }
             _ => return false, // no custom code pairs
         }
 
@@ -1618,6 +1622,176 @@ impl Entity {
         if write_handles {
             pairs.push(CodePair::new_string(5, &handle.as_string()));
         }
+    }
+    
+    fn add_custom_code_pairs_hatch(
+        pairs: &mut Vec<CodePair>,
+        hatch: &Hatch,
+        _version: AcadVersion,
+    ) {
+        // Write hatch subclass marker
+        pairs.push(CodePair::new_str(100, "AcDbHatch"));
+        
+        // Write basic hatch properties
+        if hatch.elevation != 0.0 {
+            pairs.push(CodePair::new_f64(30, hatch.elevation));
+        }
+        if hatch.extrusion_direction != Vector::z_axis() {
+            pairs.push(CodePair::new_f64(210, hatch.extrusion_direction.x));
+            pairs.push(CodePair::new_f64(220, hatch.extrusion_direction.y));
+            pairs.push(CodePair::new_f64(230, hatch.extrusion_direction.z));
+        }
+        pairs.push(CodePair::new_string(2, &hatch.hatch_pattern_name));
+        pairs.push(CodePair::new_i16(70, if hatch.solid_fill { 1 } else { 0 }));
+        pairs.push(CodePair::new_i16(71, if hatch.associative { 1 } else { 0 }));
+        
+        // Write boundary paths
+        pairs.push(CodePair::new_i32(91, hatch.boundary_paths.len() as i32));
+        for boundary_path in &hatch.boundary_paths {
+            pairs.push(CodePair::new_i32(92, boundary_path.boundary_type_flags));
+            
+            if boundary_path.is_polyline() {
+                // Write polyline boundary
+                pairs.push(CodePair::new_i32(72, 1)); // boundary path type flag: polyline
+                pairs.push(CodePair::new_i32(73, 1)); // is closed flag
+                pairs.push(CodePair::new_i32(93, boundary_path.edges.len() as i32));
+                
+                for edge in &boundary_path.edges {
+                    if let crate::BoundaryPathEdge::Polyline { vertex } = edge {
+                        pairs.push(CodePair::new_f64(10, vertex.x));
+                        pairs.push(CodePair::new_f64(20, vertex.y));
+                        pairs.push(CodePair::new_f64(42, 0.0)); // bulge value (0.0 for straight segments)
+                    }
+                }
+            } else {
+                // Write edge-based boundary (simplified for now)
+                pairs.push(CodePair::new_i32(93, boundary_path.edges.len() as i32));
+                for edge in &boundary_path.edges {
+                    match edge {
+                        crate::BoundaryPathEdge::Line { start, end } => {
+                            pairs.push(CodePair::new_i16(72, 1)); // edge type: line
+                            pairs.push(CodePair::new_f64(10, start.x));
+                            pairs.push(CodePair::new_f64(20, start.y));
+                            pairs.push(CodePair::new_f64(11, end.x));
+                            pairs.push(CodePair::new_f64(21, end.y));
+                        }
+                        crate::BoundaryPathEdge::CircularArc { center, radius, start_angle, end_angle, is_counter_clockwise } => {
+                            pairs.push(CodePair::new_i16(72, 2)); // edge type: circular arc
+                            pairs.push(CodePair::new_f64(10, center.x));
+                            pairs.push(CodePair::new_f64(20, center.y));
+                            pairs.push(CodePair::new_f64(40, *radius));
+                            pairs.push(CodePair::new_f64(50, *start_angle));
+                            pairs.push(CodePair::new_f64(51, *end_angle));
+                            pairs.push(CodePair::new_i16(73, if *is_counter_clockwise { 1 } else { 0 }));
+                        }
+                        _ => {
+                            // Skip other edge types for now
+                        }
+                    }
+                }
+            }
+            
+            // Write source boundary objects count (usually 0 for non-associative hatches)
+            pairs.push(CodePair::new_i32(97, boundary_path.source_boundary_objects.len() as i32));
+            for handle in &boundary_path.source_boundary_objects {
+                pairs.push(CodePair::new_string(330, &handle.as_string()));
+            }
+        }
+        
+        // Write remaining hatch properties
+        pairs.push(CodePair::new_i16(75, hatch.hatch_style as i16));
+        pairs.push(CodePair::new_i16(76, hatch.hatch_pattern_type as i16));
+        if hatch.hatch_pattern_angle != 0.0 {
+            pairs.push(CodePair::new_f64(52, hatch.hatch_pattern_angle));
+        }
+        if hatch.hatch_pattern_scale != 1.0 {
+            pairs.push(CodePair::new_f64(41, hatch.hatch_pattern_scale));
+        }
+        if hatch.hatch_pattern_double {
+            pairs.push(CodePair::new_i16(77, 1));
+        }
+        
+        // Write pattern definition lines (simplified - only count for now)
+        pairs.push(CodePair::new_i16(78, 0)); // no pattern lines for solid fill
+        
+        if hatch.pixel_size != 0.0 {
+            pairs.push(CodePair::new_f64(47, hatch.pixel_size));
+        }
+        
+        // Write seed points (simplified - only count for now)
+        pairs.push(CodePair::new_i32(98, 0)); // no seed points needed for basic implementation
+    }
+}
+
+//------------------------------------------------------------------------------
+//                                                                         Hatch
+//------------------------------------------------------------------------------
+impl Hatch {
+    /// Create a new solid-filled hatch with a single boundary path
+    pub fn new_solid_fill(boundary_path: crate::BoundaryPath) -> Self {
+        let mut hatch = Hatch::default();
+        hatch.solid_fill = true;
+        hatch.hatch_pattern_name = String::from("SOLID");
+        hatch.boundary_paths = vec![boundary_path];
+        hatch
+    }
+
+    /// Create a new hatch with a polygon boundary (no holes)
+    pub fn new_polygon_solid_fill(points: Vec<Point>) -> Self {
+        let boundary_path = crate::BoundaryPath::from_polygon(points, true);
+        Self::new_solid_fill(boundary_path)
+    }
+
+    /// Create a new hatch with a rectangular boundary
+    pub fn new_rectangle_solid_fill(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Self {
+        let boundary_path = crate::BoundaryPath::from_rectangle(min_x, min_y, max_x, max_y, true);
+        Self::new_solid_fill(boundary_path)
+    }
+
+    /// Create a new hatch with a circular boundary
+    pub fn new_circle_solid_fill(center: Point, radius: f64) -> Self {
+        let boundary_path = crate::BoundaryPath::from_circle(center, radius, true);
+        Self::new_solid_fill(boundary_path)
+    }
+
+    /// Create a hatch with holes (polygon with holes)
+    /// The first boundary path should be the outer boundary (external = true)
+    /// All subsequent boundary paths are holes (external = false)
+    pub fn new_polygon_with_holes_solid_fill(outer_points: Vec<Point>, hole_points: Vec<Vec<Point>>) -> Self {
+        let mut hatch = Hatch::default();
+        hatch.solid_fill = true;
+        hatch.hatch_pattern_name = String::from("SOLID");
+        hatch.hatch_style = HatchStyle::Normal;
+        
+        // Add outer boundary
+        let outer_boundary = crate::BoundaryPath::from_polygon(outer_points, true);
+        hatch.boundary_paths.push(outer_boundary);
+        
+        // Add holes
+        for hole in hole_points {
+            let hole_boundary = crate::BoundaryPath::from_polygon(hole, false);
+            hatch.boundary_paths.push(hole_boundary);
+        }
+        
+        hatch
+    }
+
+    /// Add a hole to the hatch
+    pub fn add_hole(&mut self, hole_points: Vec<Point>) {
+        let hole_boundary = crate::BoundaryPath::from_polygon(hole_points, false);
+        self.boundary_paths.push(hole_boundary);
+    }
+
+    /// Add a circular hole to the hatch
+    pub fn add_circular_hole(&mut self, center: Point, radius: f64) {
+        let hole_boundary = crate::BoundaryPath::from_circle(center, radius, false);
+        self.boundary_paths.push(hole_boundary);
+    }
+
+    /// Add a rectangular hole to the hatch
+    pub fn add_rectangular_hole(&mut self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
+        let hole_boundary = crate::BoundaryPath::from_rectangle(min_x, min_y, max_x, max_y, false);
+        self.boundary_paths.push(hole_boundary);
     }
 }
 
