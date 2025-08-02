@@ -400,6 +400,7 @@
     <Field Name="start_parameter" Code="41" Type="f64" DefaultValue="0.0" Comment="Ellipse start angle in radians." />
     <Field Name="end_parameter" Code="42" Type="f64" DefaultValue="::std::f64::consts::PI * 2.0" Comment="Ellipse end angle in radians." />
   </Entity>
+  <!-- HATCH -->
   <Entity Name="Hatch" SubclassMarker="AcDbHatch" TypeString="HATCH" MinVersion="R14" GenerateWriterFunction="false">
     <Field Name="elevation" Code="30" Type="f64" DefaultValue="0.0" DisableWritingDefault="true" />
     <Field Name="extrusion_direction" Code="210" Type="Vector" DefaultValue="Vector::z_axis()" DisableWritingDefault="true" CodeOverrides="210,220,230" />
