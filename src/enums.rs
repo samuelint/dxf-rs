@@ -1418,9 +1418,9 @@ enum_from_primitive! {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub enum HatchStyle {
-    Normal = 0,
-    Outer = 1,
-    Ignore = 2,
+    OddParity = 0,
+    OutermostAreaOnly = 1,
+    EntireArea = 2
 }
 }
 

@@ -1723,15 +1723,37 @@ impl Entity {
             pairs.push(CodePair::new_i16(77, 1));
         }
 
-        // Write pattern definition lines (simplified - only count for now)
-        pairs.push(CodePair::new_i16(78, 0)); // no pattern lines for solid fill
+        // Write pattern definition lines (only if there are actual lines)
+        pairs.push(CodePair::new_i16(
+            78,
+            hatch.pattern_definition_lines.len() as i16,
+        ));
+        for pattern_line in &hatch.pattern_definition_lines {
+            pairs.push(CodePair::new_f64(53, pattern_line.angle));
+            pairs.push(CodePair::new_f64(43, pattern_line.base_point.x));
+            pairs.push(CodePair::new_f64(44, pattern_line.base_point.y));
+            pairs.push(CodePair::new_f64(45, pattern_line.offset.x));
+            pairs.push(CodePair::new_f64(46, pattern_line.offset.y));
+            pairs.push(CodePair::new_i16(
+                79,
+                pattern_line.dash_lengths.len() as i16,
+            ));
+            for dash_length in &pattern_line.dash_lengths {
+                pairs.push(CodePair::new_f64(49, *dash_length));
+            }
+        }
 
-        if hatch.pixel_size != 0.0 {
+        // Write pixel size (only if hatch is associative, following C# implementation)
+        if hatch.associative && hatch.pixel_size != 0.0 {
             pairs.push(CodePair::new_f64(47, hatch.pixel_size));
         }
 
-        // Write seed points (simplified - only count for now)
-        pairs.push(CodePair::new_i32(98, 0)); // no seed points needed for basic implementation
+        // Write seed points
+        pairs.push(CodePair::new_i32(98, hatch.seed_points.len() as i32));
+        for seed_point in &hatch.seed_points {
+            pairs.push(CodePair::new_f64(10, seed_point.x));
+            pairs.push(CodePair::new_f64(20, seed_point.y));
+        }
     }
 }
 
@@ -1776,7 +1798,7 @@ impl Hatch {
         let mut hatch = Hatch::default();
         hatch.solid_fill = true;
         hatch.hatch_pattern_name = String::from("SOLID");
-        hatch.hatch_style = HatchStyle::Normal;
+        hatch.hatch_style = HatchStyle::OddParity;
 
         // Add outer boundary
         let outer_boundary = crate::BoundaryPath::from_polygon(outer_points, true);
@@ -1807,6 +1829,30 @@ impl Hatch {
     pub fn add_rectangular_hole(&mut self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
         let hole_boundary = crate::BoundaryPath::from_rectangle(min_x, min_y, max_x, max_y, false);
         self.boundary_paths.push(hole_boundary);
+    }
+
+    /// Add a pattern definition line to the hatch
+    pub fn add_pattern_definition_line(&mut self, pattern_line: crate::PatternDefinitionLine) {
+        self.pattern_definition_lines.push(pattern_line);
+    }
+
+    /// Add a seed point to the hatch
+    pub fn add_seed_point(&mut self, seed_point: Point) {
+        self.seed_points.push(seed_point);
+    }
+
+    /// Create a hatch with pattern definition lines
+    pub fn new_pattern_fill(
+        boundary_path: crate::BoundaryPath,
+        pattern_name: String,
+        pattern_lines: Vec<crate::PatternDefinitionLine>,
+    ) -> Self {
+        let mut hatch = Hatch::default();
+        hatch.solid_fill = false;
+        hatch.hatch_pattern_name = pattern_name;
+        hatch.boundary_paths = vec![boundary_path];
+        hatch.pattern_definition_lines = pattern_lines;
+        hatch
     }
 }
 
@@ -3504,5 +3550,61 @@ mod tests {
         assert_eq!("ANNOTATIVE", dim_styles[0].name);
         assert_eq!("STANDARD", dim_styles[1].name);
         assert_eq!("style name", dim_styles[2].name);
+    }
+
+    #[test]
+    fn test_read_hatch_pattern_definition() {
+        let mut hatch = Hatch::default();
+        hatch.hatch_pattern_double = true;
+        hatch.pixel_size = 99.0;
+        hatch.associative = true; // Required for pixel_size to be written
+
+        let line1 = PatternDefinitionLine::new_with_dashes(
+            1.0,
+            Point::new(2.0, 3.0, 0.0),
+            Vector::new(4.0, 5.0, 0.0),
+            vec![6.0, 7.0],
+        );
+
+        let line2 = PatternDefinitionLine::new_with_dashes(
+            8.0,
+            Point::new(9.0, 10.0, 0.0),
+            Vector::new(11.0, 12.0, 0.0),
+            vec![13.0, 14.0],
+        );
+
+        hatch.pattern_definition_lines = vec![line1, line2];
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R14; // HATCH entities require R14 or later
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_i16(77, 1), // IsPatternDoubled
+                CodePair::new_i16(78, 2), // line count
+                // line 1
+                CodePair::new_f64(53, 1.0), // angle
+                CodePair::new_f64(43, 2.0), // base point X
+                CodePair::new_f64(44, 3.0), // base point Y
+                CodePair::new_f64(45, 4.0), // offset X
+                CodePair::new_f64(46, 5.0), // offset Y
+                CodePair::new_i16(79, 2),   // dash count
+                CodePair::new_f64(49, 6.0), // dash length 1
+                CodePair::new_f64(49, 7.0), // dash length 2
+                // line 2
+                CodePair::new_f64(53, 8.0),  // angle
+                CodePair::new_f64(43, 9.0),  // base point X
+                CodePair::new_f64(44, 10.0), // base point Y
+                CodePair::new_f64(45, 11.0), // offset X
+                CodePair::new_f64(46, 12.0), // offset Y
+                CodePair::new_i16(79, 2),    // dash count
+                CodePair::new_f64(49, 13.0), // dash length 1
+                CodePair::new_f64(49, 14.0), // dash length 2
+                // pixel size after pattern definition lines
+                CodePair::new_f64(47, 99.0), // pixel size
+            ],
+        );
     }
 }
