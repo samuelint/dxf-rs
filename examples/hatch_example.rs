@@ -54,9 +54,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Point::new(8.0, 17.5, 0.0),
     ];
 
-    let rect_with_hole =
-        Hatch::new_polygon_with_holes_solid_fill(outer_boundary, vec![circular_hole]);
-    drawing.add_entity(Entity::new(EntityType::Hatch(rect_with_hole)));
+    let mut hatch = Hatch::default();
+    hatch.set_path(outer_boundary);
+    hatch.set_holes(vec![circular_hole]);
+
+    drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
     drawing.save_file("hatch_with_hole_examples.dxf")?;
 
     // Example 5: Complex shape with multiple holes

@@ -1302,14 +1302,15 @@ impl Entity {
         iter: &mut CodePairPutBack,
     ) -> DxfResult<bool> {
         let mut current_pattern_line = None;
-        
+
         loop {
             let pair = next_pair!(iter);
             match pair.code {
                 // Pattern definition lines
                 78 => {
                     let pattern_definition_line_count = pair.assert_i16()? as usize;
-                    hatch.pattern_definition_lines = Vec::with_capacity(pattern_definition_line_count);
+                    hatch.pattern_definition_lines =
+                        Vec::with_capacity(pattern_definition_line_count);
                 }
                 53 => {
                     // Start new pattern definition line - save previous one first
@@ -1363,7 +1364,9 @@ impl Entity {
                 }
                 10 => {
                     // Seed point X coordinate
-                    hatch.seed_points.push(crate::Point::new(pair.assert_f64()?, 0.0, 0.0));
+                    hatch
+                        .seed_points
+                        .push(crate::Point::new(pair.assert_f64()?, 0.0, 0.0));
                 }
                 20 => {
                     // Seed point Y coordinate
@@ -1378,7 +1381,7 @@ impl Entity {
                     if let Some(line) = current_pattern_line.take() {
                         hatch.pattern_definition_lines.push(line);
                     }
-                    
+
                     // Try auto-generated parsing first
                     let mut entity_type = EntityType::Hatch(hatch.clone());
                     if !entity_type.try_apply_code_pair(&pair)? {
@@ -1900,48 +1903,47 @@ impl Hatch {
         hatch.hatch_pattern_name = String::from("SOLID");
         hatch.hatch_style = HatchStyle::OddParity;
 
-        // Add outer boundary
-        let outer_boundary = crate::BoundaryPath::from_polygon(outer_points, true);
-        hatch.boundary_paths.push(outer_boundary);
-
-        // Add holes
-        for hole in hole_points {
-            let hole_boundary = crate::BoundaryPath::from_polygon(hole, false);
-            hatch.boundary_paths.push(hole_boundary);
-        }
+        hatch.set_path(outer_points);
+        hatch.set_holes(hole_points);
 
         hatch
     }
 
-    /// Add a hole to the hatch
+    pub fn set_path(&mut self, points: Vec<Point>) {
+        let outer_boundary = crate::BoundaryPath::from_polygon(points, true);
+        self.boundary_paths.push(outer_boundary);
+    }
+
+    pub fn set_holes(&mut self, holes: Vec<Vec<Point>>) {
+        for hole in holes {
+            let hole_boundary = crate::BoundaryPath::from_polygon(hole, false);
+            self.boundary_paths.push(hole_boundary);
+        }
+    }
+
     pub fn add_hole(&mut self, hole_points: Vec<Point>) {
         let hole_boundary = crate::BoundaryPath::from_polygon(hole_points, false);
         self.boundary_paths.push(hole_boundary);
     }
 
-    /// Add a circular hole to the hatch
     pub fn add_circular_hole(&mut self, center: Point, radius: f64) {
         let hole_boundary = crate::BoundaryPath::from_circle(center, radius, false);
         self.boundary_paths.push(hole_boundary);
     }
 
-    /// Add a rectangular hole to the hatch
     pub fn add_rectangular_hole(&mut self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
         let hole_boundary = crate::BoundaryPath::from_rectangle(min_x, min_y, max_x, max_y, false);
         self.boundary_paths.push(hole_boundary);
     }
 
-    /// Add a pattern definition line to the hatch
     pub fn add_pattern_definition_line(&mut self, pattern_line: crate::PatternDefinitionLine) {
         self.pattern_definition_lines.push(pattern_line);
     }
 
-    /// Add a seed point to the hatch
     pub fn add_seed_point(&mut self, seed_point: Point) {
         self.seed_points.push(seed_point);
     }
 
-    /// Create a hatch with pattern definition lines
     pub fn new_pattern_fill(
         boundary_path: crate::BoundaryPath,
         pattern_name: String,
@@ -3758,39 +3760,37 @@ mod tests {
 
     #[test]
     fn read_hatch_pattern_definition_test() {
-        let ent = read_hatch_entity(
-            vec![
-                CodePair::new_i16(77, 1),   // is pattern doubled
-                CodePair::new_i16(78, 2),   // pattern definition line count
-                // Line 1
-                CodePair::new_f64(53, 1.0), // angle
-                CodePair::new_f64(43, 2.0), // base point X
-                CodePair::new_f64(44, 3.0), // base point Y
-                CodePair::new_f64(45, 4.0), // offset X
-                CodePair::new_f64(46, 5.0), // offset Y
-                CodePair::new_i16(79, 2),   // dash count
-                CodePair::new_f64(49, 6.0), // dash length 1
-                CodePair::new_f64(49, 7.0), // dash length 2
-                // Line 2
-                CodePair::new_f64(53, 8.0),  // angle
-                CodePair::new_f64(43, 9.0),  // base point X
-                CodePair::new_f64(44, 10.0), // base point Y
-                CodePair::new_f64(45, 11.0), // offset X
-                CodePair::new_f64(46, 12.0), // offset Y
-                CodePair::new_i16(79, 2),    // dash count
-                CodePair::new_f64(49, 13.0), // dash length 1
-                CodePair::new_f64(49, 14.0), // dash length 2
-                CodePair::new_f64(47, 99.0), // pixel size
-            ],
-        );
-        
+        let ent = read_hatch_entity(vec![
+            CodePair::new_i16(77, 1), // is pattern doubled
+            CodePair::new_i16(78, 2), // pattern definition line count
+            // Line 1
+            CodePair::new_f64(53, 1.0), // angle
+            CodePair::new_f64(43, 2.0), // base point X
+            CodePair::new_f64(44, 3.0), // base point Y
+            CodePair::new_f64(45, 4.0), // offset X
+            CodePair::new_f64(46, 5.0), // offset Y
+            CodePair::new_i16(79, 2),   // dash count
+            CodePair::new_f64(49, 6.0), // dash length 1
+            CodePair::new_f64(49, 7.0), // dash length 2
+            // Line 2
+            CodePair::new_f64(53, 8.0),  // angle
+            CodePair::new_f64(43, 9.0),  // base point X
+            CodePair::new_f64(44, 10.0), // base point Y
+            CodePair::new_f64(45, 11.0), // offset X
+            CodePair::new_f64(46, 12.0), // offset Y
+            CodePair::new_i16(79, 2),    // dash count
+            CodePair::new_f64(49, 13.0), // dash length 1
+            CodePair::new_f64(49, 14.0), // dash length 2
+            CodePair::new_f64(47, 99.0), // pixel size
+        ]);
+
         match ent.specific {
             EntityType::Hatch(ref hatch) => {
                 assert!(hatch.hatch_pattern_double); // specified before pattern definition lines
                 assert_eq!(99.0, hatch.pixel_size); // specified after pattern definition lines
 
                 assert_eq!(2, hatch.pattern_definition_lines.len());
-                
+
                 let line1 = &hatch.pattern_definition_lines[0];
                 assert_eq!(1.0, line1.angle);
                 assert_eq!(2.0, line1.base_point.x);
@@ -3841,8 +3841,8 @@ mod tests {
         assert_contains_pairs(
             &drawing,
             vec![
-                CodePair::new_i16(77, 1),   // is pattern doubled
-                CodePair::new_i16(78, 2),   // pattern definition line count
+                CodePair::new_i16(77, 1), // is pattern doubled
+                CodePair::new_i16(78, 2), // pattern definition line count
                 // Line 1
                 CodePair::new_f64(53, 1.0), // angle
                 CodePair::new_f64(43, 2.0), // base point X
@@ -3878,10 +3878,10 @@ mod tests {
                 CodePair::new_f64(20, 2.0),  // seed point 1 Y
                 CodePair::new_f64(10, 3.0),  // seed point 2 X
                 CodePair::new_f64(20, 4.0),  // seed point 2 Y
-                // Note: The C# test had "IsGradient" (450, 1) but this doesn't exist in Rust Hatch struct
+                                             // Note: The C# test had "IsGradient" (450, 1) but this doesn't exist in Rust Hatch struct
             ],
         );
-        
+
         match ent.specific {
             EntityType::Hatch(ref hatch) => {
                 assert_eq!(99.0, hatch.pixel_size); // specified before seed points
@@ -3899,10 +3899,7 @@ mod tests {
         let mut hatch = Hatch::default();
         hatch.pixel_size = 99.0; // written before seed points
         hatch.associative = true; // Required for pixel_size to be written
-        hatch.seed_points = vec![
-            Point::new(1.0, 2.0, 0.0),
-            Point::new(3.0, 4.0, 0.0),
-        ];
+        hatch.seed_points = vec![Point::new(1.0, 2.0, 0.0), Point::new(3.0, 4.0, 0.0)];
 
         let mut drawing = Drawing::new();
         drawing.header.version = AcadVersion::R14;
@@ -3920,6 +3917,4 @@ mod tests {
             ],
         );
     }
-
-    
 }
