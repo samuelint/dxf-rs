@@ -3,7 +3,7 @@
 use enum_primitive::FromPrimitive;
 
 use crate::enums::HatchStyle;
-use crate::{CodePair, Color, DxfError, DxfResult, Handle, Point, Vector};
+use crate::{BoundaryPathEdge, CodePair, Color, DxfError, DxfResult, Handle, Point, Vector};
 
 use crate::code_pair_put_back::CodePairPutBack;
 use crate::entities::*;
@@ -1727,6 +1727,14 @@ impl Entity {
         }
     }
 
+    fn push_boundary_edge(pairs: &mut Vec<CodePair>, edge: &BoundaryPathEdge) {
+        if let crate::BoundaryPathEdge::Polyline { vertex } = edge {
+            pairs.push(CodePair::new_f64(10, vertex.x));
+            pairs.push(CodePair::new_f64(20, vertex.y));
+            pairs.push(CodePair::new_f64(42, vertex.z));
+        }
+    }
+
     fn add_custom_code_pairs_hatch(
         pairs: &mut Vec<CodePair>,
         hatch: &Hatch,
@@ -1751,19 +1759,27 @@ impl Entity {
         for boundary_path in &hatch.boundary_paths {
             pairs.push(CodePair::new_i32(92, boundary_path.boundary_type_flags));
 
+            let is_close_flag = match boundary_path.is_closed {
+                true => 1,
+                _ => 0,
+            };
+
             if boundary_path.is_polyline() {
                 // Write polyline boundary
                 pairs.push(CodePair::new_i32(72, 1)); // boundary path type flag: polyline
-                pairs.push(CodePair::new_i32(73, 1)); // is closed flag
+                pairs.push(CodePair::new_i32(73, is_close_flag)); // is closed flag
                 pairs.push(CodePair::new_i32(93, boundary_path.edges.len() as i32));
 
                 for edge in &boundary_path.edges {
-                    if let crate::BoundaryPathEdge::Polyline { vertex } = edge {
-                        pairs.push(CodePair::new_f64(10, vertex.x));
-                        pairs.push(CodePair::new_f64(20, vertex.y));
-                        pairs.push(CodePair::new_f64(42, 0.0)); // bulge value (0.0 for straight segments)
-                    }
+                    Entity::push_boundary_edge(pairs, edge);
                 }
+
+                match boundary_path.edges.first() {
+                    Some(edge) => {
+                        Entity::push_boundary_edge(pairs, edge);
+                    }
+                    _ => {}
+                };
             } else {
                 // Write edge-based boundary (simplified for now)
                 pairs.push(CodePair::new_i32(93, boundary_path.edges.len() as i32));
@@ -1825,10 +1841,13 @@ impl Entity {
         }
 
         // Write pattern definition lines (only if there are actual lines)
-        pairs.push(CodePair::new_i16(
-            78,
-            hatch.pattern_definition_lines.len() as i16,
-        ));
+        if hatch.pattern_definition_lines.len() > 0 {
+            pairs.push(CodePair::new_i16(
+                78,
+                hatch.pattern_definition_lines.len() as i16,
+            ));
+        }
+
         for pattern_line in &hatch.pattern_definition_lines {
             pairs.push(CodePair::new_f64(53, pattern_line.angle));
             pairs.push(CodePair::new_f64(43, pattern_line.base_point.x));
@@ -3757,8 +3776,7 @@ mod tests {
             vec![
                 CodePair::new_i32(91, 0),    // boundary path count
                 CodePair::new_i16(75, 0),    // hatch style (OddParity = 0)
-                CodePair::new_i16(76, 0),    // hatch pattern type (UserDefined = 0)
-                CodePair::new_i16(78, 0),    // pattern definition line count
+                CodePair::new_i16(76, 1),    // hatch pattern type (Predefined = 1)
                 CodePair::new_f64(47, 42.0), // pixel size
             ],
         )
@@ -4016,6 +4034,39 @@ mod tests {
                 CodePair::new_f64(210, 0.5),   // extrusion direction X
                 CodePair::new_f64(220, 0.5),   // extrusion direction Y
                 CodePair::new_f64(230, 0.707), // extrusion direction Z
+            ],
+        );
+    }
+
+    #[test]
+    fn test_hatch_edges() {
+        let mut hatch = Hatch::default();
+
+        let path_points = vec![Point {
+            x: 1.0,
+            y: 2.1,
+            z: 0.0,
+        }];
+        hatch.set_path(path_points);
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R2010;
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_i32(97, 0), // Number of edges in the loop
+                CodePair::new_i16(75, 0), // Edge type
+                CodePair::new_i16(76, 1), // Has bulge data flag
+                CodePair::new_i32(98, 0), // Number of seed points
+            ],
+        );
+
+        assert_not_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_i32(78, 0), // Number of pattern definition lines. Must not be present in this test case otherwise hatch might not be loaded depending the loader
             ],
         );
     }

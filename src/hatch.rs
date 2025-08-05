@@ -6,6 +6,7 @@ pub struct BoundaryPath {
     pub boundary_type_flags: i32,
     pub edges: Vec<BoundaryPathEdge>,
     pub source_boundary_objects: Vec<Handle>,
+    pub is_closed: bool,
 }
 
 impl BoundaryPath {
@@ -14,6 +15,7 @@ impl BoundaryPath {
             boundary_type_flags: 0,
             edges: vec![],
             source_boundary_objects: vec![],
+            is_closed: true,
         }
     }
 
@@ -471,7 +473,7 @@ mod tests {
         assert!(hatch.solid_fill);
         assert!(!hatch.associative);
         assert_eq!(hatch.hatch_style, HatchStyle::OddParity);
-        assert_eq!(hatch.hatch_pattern_type, HatchPatternType::UserDefined);
+        assert_eq!(hatch.hatch_pattern_type, HatchPatternType::Predefined);
         assert_eq!(hatch.hatch_pattern_angle, 0.0);
         assert_eq!(hatch.hatch_pattern_scale, 1.0);
         assert!(!hatch.hatch_pattern_double);
