@@ -982,4 +982,50 @@ mod tests {
         assert!(hatch.pattern_definition_lines.is_empty());
         assert_eq!(42.0, hatch.pixel_size);
     }
+
+    #[test]
+    fn test_hatch_extrusion_direction_default() {
+        let hatch = Hatch::default();
+
+        // Default extrusion direction should be Z-axis (0, 0, 1)
+        assert_eq!(hatch.extrusion_direction, Vector::z_axis());
+        assert_eq!(hatch.extrusion_direction.x, 0.0);
+        assert_eq!(hatch.extrusion_direction.y, 0.0);
+        assert_eq!(hatch.extrusion_direction.z, 1.0);
+    }
+
+    #[test]
+    fn test_hatch_custom_extrusion_direction() {
+        let mut hatch = Hatch::new_rectangle_solid_fill(0.0, 0.0, 10.0, 10.0);
+
+        // Set custom extrusion direction (normal vector)
+        hatch.extrusion_direction = Vector::new(1.0, 0.0, 0.0); // X-axis normal
+
+        assert_eq!(hatch.extrusion_direction.x, 1.0);
+        assert_eq!(hatch.extrusion_direction.y, 0.0);
+        assert_eq!(hatch.extrusion_direction.z, 0.0);
+    }
+
+    #[test]
+    fn test_hatch_with_y_axis_normal() {
+        let mut hatch = Hatch::new_circle_solid_fill(Point::new(5.0, 5.0, 0.0), 3.0);
+
+        // Set Y-axis as normal vector
+        hatch.extrusion_direction = Vector::new(0.0, 1.0, 0.0);
+
+        assert_eq!(hatch.extrusion_direction, Vector::new(0.0, 1.0, 0.0));
+        assert!(hatch.solid_fill);
+        assert_eq!(hatch.boundary_paths.len(), 1);
+    }
+
+    #[test]
+    fn test_hatch_with_diagonal_normal() {
+        let mut hatch = Hatch::default();
+
+        // Set diagonal normal vector (normalized)
+        let diagonal_normal = Vector::new(0.5773, 0.5773, 0.5773); // roughly (1,1,1) normalized
+        hatch.extrusion_direction = diagonal_normal.clone();
+
+        assert_eq!(hatch.extrusion_direction, diagonal_normal);
+    }
 }

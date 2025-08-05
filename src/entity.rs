@@ -1739,11 +1739,9 @@ impl Entity {
         if hatch.elevation != 0.0 {
             pairs.push(CodePair::new_f64(30, hatch.elevation));
         }
-        if hatch.extrusion_direction != Vector::z_axis() {
-            pairs.push(CodePair::new_f64(210, hatch.extrusion_direction.x));
-            pairs.push(CodePair::new_f64(220, hatch.extrusion_direction.y));
-            pairs.push(CodePair::new_f64(230, hatch.extrusion_direction.z));
-        }
+        pairs.push(CodePair::new_f64(210, hatch.extrusion_direction.x));
+        pairs.push(CodePair::new_f64(220, hatch.extrusion_direction.y));
+        pairs.push(CodePair::new_f64(230, hatch.extrusion_direction.z));
         pairs.push(CodePair::new_string(2, &hatch.hatch_pattern_name));
         pairs.push(CodePair::new_i16(70, if hatch.solid_fill { 1 } else { 0 }));
         pairs.push(CodePair::new_i16(71, if hatch.associative { 1 } else { 0 }));
@@ -1942,6 +1940,14 @@ impl Hatch {
 
     pub fn add_seed_point(&mut self, seed_point: Point) {
         self.seed_points.push(seed_point);
+    }
+
+    pub fn set_normal_vector(&mut self, normal: Vector) {
+        self.extrusion_direction = normal;
+    }
+
+    pub fn normal_vector(&self) -> &Vector {
+        &self.extrusion_direction
     }
 
     pub fn new_pattern_fill(
@@ -3914,6 +3920,102 @@ mod tests {
                 CodePair::new_f64(20, 2.0),  // seed point 1 Y
                 CodePair::new_f64(10, 3.0),  // seed point 2 X
                 CodePair::new_f64(20, 4.0),  // seed point 2 Y
+            ],
+        );
+    }
+
+    #[test]
+    fn test_hatch_extrusion_direction_serialization() {
+        let mut hatch = Hatch::default();
+        hatch.extrusion_direction = Vector::new(0.707, 0.707, 0.0); // 45-degree normal in XY plane
+        hatch.associative = true; // Required for some fields to be written
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R14;
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        // Should contain the extrusion direction codes since it's not default Z-axis
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_f64(210, 0.707), // extrusion direction X
+                CodePair::new_f64(220, 0.707), // extrusion direction Y
+                CodePair::new_f64(230, 0.0),   // extrusion direction Z
+            ],
+        );
+    }
+
+    #[test]
+    fn test_hatch_default_extrusion_direction_serialized() {
+        let hatch = Hatch::default(); // Uses default Z-axis extrusion
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R14;
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        // Default extrusion direction (0, 0, 1) should not be written to save space
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_f64(210, 0.0), // extrusion direction X
+                CodePair::new_f64(220, 0.0), // extrusion direction Y
+                CodePair::new_f64(230, 1.0), // extrusion direction Z
+            ],
+        );
+    }
+
+    #[test]
+    fn test_hatch_x_axis_normal_serialization() {
+        let mut hatch = Hatch::new_rectangle_solid_fill(0.0, 0.0, 10.0, 10.0);
+        hatch.extrusion_direction = Vector::new(1.0, 0.0, 0.0); // X-axis normal
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R14;
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_f64(210, 1.0), // extrusion direction X
+                CodePair::new_f64(220, 0.0), // extrusion direction Y
+                CodePair::new_f64(230, 0.0), // extrusion direction Z
+            ],
+        );
+    }
+
+    #[test]
+    fn test_hatch_normal_vector_convenience_methods() {
+        let mut hatch = Hatch::new_rectangle_solid_fill(0.0, 0.0, 10.0, 10.0);
+
+        // Test default normal vector
+        assert_eq!(hatch.normal_vector(), &Vector::z_axis());
+
+        // Test setting custom normal vector
+        let custom_normal = Vector::new(0.0, 1.0, 0.0);
+        hatch.set_normal_vector(custom_normal.clone());
+
+        assert_eq!(hatch.normal_vector(), &custom_normal);
+        assert_eq!(hatch.extrusion_direction, custom_normal);
+    }
+
+    #[test]
+    fn test_hatch_normal_vector_serialization_with_convenience_methods() {
+        let mut hatch = Hatch::new_rectangle_solid_fill(0.0, 0.0, 10.0, 10.0);
+
+        // Use convenience method to set normal vector
+        hatch.set_normal_vector(Vector::new(0.5, 0.5, 0.707));
+
+        let mut drawing = Drawing::new();
+        drawing.header.version = AcadVersion::R14;
+        drawing.add_entity(Entity::new(EntityType::Hatch(hatch)));
+
+        // Should contain the extrusion direction codes
+        assert_contains_pairs(
+            &drawing,
+            vec![
+                CodePair::new_f64(210, 0.5),   // extrusion direction X
+                CodePair::new_f64(220, 0.5),   // extrusion direction Y
+                CodePair::new_f64(230, 0.707), // extrusion direction Z
             ],
         );
     }
